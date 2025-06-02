@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { parse } from 'csv-parse';
+import fs from 'fs';
 import Customer from '../models/Customer.js';
 import Order from '../models/Order.js';
 import mongoose from 'mongoose';
@@ -304,6 +306,60 @@ export const createBulkCustomers = async (req, res) => {
       success: false,
       message: 'Failed to create customers',
       error: error.message,
+    });
+  }
+};
+
+export const bulkUploadCustomers = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({
+      success: false,
+      message: 'No file uploaded',
+    });
+  }
+
+  const results = {
+    success: 0,
+    failed: 0,
+    errors: [],
+  };
+
+  const parser = fs.createReadStream(req.file.path)
+    .pipe(parse({
+      columns: true,
+      skip_empty_lines: true,
+    }));
+
+  try {
+    for await (const record of parser) {
+      try {
+        const customer = await Customer.create({
+          name: record.name,
+          email: record.email,
+          phone: record.phone,
+          location: record.location,
+          tags: record.tags ? record.tags.split(',').map(tag => tag.trim()) : [],
+          notes: record.notes || '',
+        });
+        results.success++;
+      } catch (error) {
+        results.failed++;
+        results.errors.push(`Row failed: ${record.email} - ${error.message}`);
+      }
+    }
+
+    // Clean up uploaded file
+    fs.unlinkSync(req.file.path);
+
+    res.status(200).json({
+      success: true,
+      data: results,
+    });
+  } catch (error) {
+    console.error('Bulk upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during bulk upload',
     });
   }
 };

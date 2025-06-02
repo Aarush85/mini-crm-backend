@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { parse } from 'csv-parse';
+import fs from 'fs';
 import Order from '../models/Order.js';
 import Customer from '../models/Customer.js';
 import mongoose from 'mongoose';
@@ -342,6 +344,75 @@ export const createBulkOrders = async (req, res) => {
       success: false,
       message: 'Failed to create orders',
       error: error.message,
+    });
+  }
+};
+
+export const bulkUploadOrders = async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({
+      success: false,
+      message: 'No file uploaded',
+    });
+  }
+
+  const results = {
+    success: 0,
+    failed: 0,
+    errors: [],
+  };
+
+  const parser = fs.createReadStream(req.file.path)
+    .pipe(parse({
+      columns: true,
+      skip_empty_lines: true,
+    }));
+
+  try {
+    for await (const record of parser) {
+      try {
+        // Verify customer exists
+        const customer = await Customer.findById(record.customerId);
+        if (!customer) {
+          throw new Error(`Customer ID ${record.customerId} not found`);
+        }
+
+        // Parse items string into array of objects
+        const items = record.items.split(',').map(item => ({
+          name: item.trim(),
+          quantity: 1, // Default quantity
+          price: parseFloat(record.price) / record.items.split(',').length // Divide total price by number of items
+        }));
+
+        const order = await Order.create({
+          orderId: record.orderId,
+          customerId: record.customerId,
+          items: items,
+          price: parseFloat(record.price),
+          status: record.status || 'pending',
+          paymentMethod: record.paymentMethod,
+          shippingAddress: record.shippingAddress,
+          notes: record.notes || '',
+        });
+        results.success++;
+      } catch (error) {
+        results.failed++;
+        results.errors.push(`Row failed: ${record.orderId} - ${error.message}`);
+      }
+    }
+
+    // Clean up uploaded file
+    fs.unlinkSync(req.file.path);
+
+    res.status(200).json({
+      success: true,
+      data: results,
+    });
+  } catch (error) {
+    console.error('Bulk upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during bulk upload',
     });
   }
 };
