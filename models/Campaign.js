@@ -56,6 +56,11 @@ const CampaignSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    subject: {
+      type: String,
+      required: [true, 'Please provide campaign subject'],
+      trim: true,
+    },
     segmentRules: {
       type: [SegmentRuleSchema],
       required: [true, 'Please provide segment rules'],

@@ -8,6 +8,7 @@ import {
   sendCampaign,
   generateMessage,
   previewCampaignAudience,
+  testEmail,
 } from '../controllers/campaigns.js';
 import { protect } from '../middleware/auth.js';
 
@@ -15,6 +16,9 @@ const router = express.Router();
 
 // Apply authentication middleware to all routes
 // router.use(protect);
+
+// Test email route
+router.post('/test-email', testEmail);
 
 // Specific routes first
 router.post('/generate-message', generateMessage);

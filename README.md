@@ -1,121 +1,125 @@
-# Marketing Campaign Manager - Backend
+# MiniCRM Backend
 
-This is the backend server for the Marketing Campaign Manager application, built with Node.js, Express, and MongoDB.
+A robust Node.js backend for the MiniCRM platform, handling customer management, order tracking, and marketing campaigns.
 
-## Features
+## 🚀 Features
+
+- **Authentication**
+  - Google OAuth2.0 integration
+  - JWT-based session management
+  - Role-based access control
 
 - **Customer Management**
   - CRUD operations for customer profiles
-  - Track customer spending and order history
-  - Customer segmentation based on various criteria
-  - Bulk customer import via CSV
+  - Customer segmentation
+  - Bulk import via CSV
 
 - **Order Management**
-  - Track customer orders and purchase history
-  - Calculate total spending per customer
-  - Bulk order import via CSV
+  - Track customer orders
+  - Calculate spending metrics
+  - Bulk order processing
 
 - **Campaign Management**
-  - Create and manage marketing campaigns
-  - AI-powered message generation for campaigns
-  - Target audience segmentation
+  - Create targeted marketing campaigns
+  - AI-powered message generation
+  - Email campaign scheduling
   - Campaign performance tracking
 
-- **Authentication & Authorization**
-  - JWT-based authentication
-  - Role-based access control
-  - Secure password handling
+## 🛠 Tech Stack
 
-## Tech Stack
-
-- Node.js
-- Express.js
+- Node.js & Express.js
 - MongoDB with Mongoose
-- JWT for authentication
-- Zod for request validation
-- Hugging Face API for AI message generation
+- Passport.js for authentication
+- Nodemailer for email services
+- Hugging Face API for AI features
 
-## Prerequisites
+## 📋 Prerequisites
 
 - Node.js (v14 or higher)
 - MongoDB
+- Google Cloud Console account (for OAuth)
+- Gmail account (for email service)
 - Hugging Face API key
 
-## Environment Variables
+## ⚙️ Environment Setup
 
-Create a `.env` file in the root directory with the following variables:
+Create a `.env` file in the root directory:
 
 ```env
+# Server
 PORT=5000
-MONGODB_URI=your_mongodb_connection_string
+NODE_ENV=development
+FRONTEND_URL=http://localhost:5173
+
+# Database
+MONGODB_URI=mongodb://localhost:27017/mini-crm
+
+# Authentication
 JWT_SECRET=your_jwt_secret
+JWT_EXPIRES_IN=7d
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
+
+# Email
+SMTP_USER=your_gmail_username
+SMTP_PASS=your_gmail_app_password
+EMAIL_FROM_NAME=MiniCRM
+EMAIL_FROM_ADDRESS=your_email@gmail.com
+
+# AI Integration
 HUGGINGFACE_API_KEY=your_huggingface_api_key
 ```
 
-## Installation
+## 🚀 Installation
 
 1. Clone the repository
-2. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-3. Install dependencies:
+2. Install dependencies:
    ```bash
    npm install
    ```
-4. Start the development server:
+3. Set up environment variables
+4. Start the server:
    ```bash
    npm run dev
    ```
 
-## API Endpoints
+## 📚 API Documentation
 
 ### Authentication
-- `POST /api/auth/register` - Register a new user
-- `POST /api/auth/login` - Login user
-- `GET /api/auth/status` - Check authentication status
+- `POST /api/auth/google` - Google OAuth login
+- `GET /api/auth/status` - Check auth status
+- `GET /api/auth/logout` - Logout user
 
 ### Customers
-- `GET /api/customers` - Get all customers
-- `GET /api/customers/:id` - Get single customer
-- `POST /api/customers` - Create new customer
-- `PUT /api/customers/:id` - Update customer
-- `DELETE /api/customers/:id` - Delete customer
-- `POST /api/customers/bulk` - Bulk import customers
+- `GET /api/customers` - List customers
+- `POST /api/customers` - Create customer
+- `POST /api/customers/bulk-upload` - Bulk import
 
 ### Orders
-- `GET /api/orders` - Get all orders
-- `GET /api/orders/:id` - Get single order
-- `POST /api/orders` - Create new order
-- `PUT /api/orders/:id` - Update order
-- `DELETE /api/orders/:id` - Delete order
-- `POST /api/orders/bulk` - Bulk import orders
+- `GET /api/orders` - List orders
+- `POST /api/orders` - Create order
+- `POST /api/orders/bulk-upload` - Bulk import
 
 ### Campaigns
-- `GET /api/campaigns` - Get all campaigns
-- `GET /api/campaigns/:id` - Get single campaign
-- `POST /api/campaigns` - Create new campaign
-- `PUT /api/campaigns/:id` - Update campaign
-- `DELETE /api/campaigns/:id` - Delete campaign
-- `POST /api/campaigns/generate-message` - Generate AI message for campaign
+- `GET /api/campaigns` - List campaigns
+- `POST /api/campaigns` - Create campaign
+- `POST /api/campaigns/:id/send` - Send campaign
+- `POST /api/campaigns/generate-message` - AI message generation
 
-## Error Handling
+## 🔒 Security
 
-The API uses a consistent error response format:
+- Rate limiting
+- CORS protection
+- Helmet security headers
+- JWT authentication
+- Secure session management
 
-```json
-{
-  "success": false,
-  "message": "Error message",
-  "errors": [] // Optional array of validation errors
-}
+## 🧪 Testing
+
+```bash
+npm test
 ```
 
-## Security
+## 📝 License
 
-- JWT-based authentication
-- Password hashing using bcrypt
-- Input validation using Zod
-- CORS enabled
-- Rate limiting
-- Environment variable protection 
+MIT 

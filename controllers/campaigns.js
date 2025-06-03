@@ -1,23 +1,15 @@
 import { z } from 'zod';
 import Campaign from '../models/Campaign.js';
 import Customer from '../models/Customer.js';
+import { sendCampaignEmails } from '../services/emailService.js';
+import { sendEmail } from '../config/email.js';
 import mongoose from 'mongoose';
 
 // Validation schemas
 const segmentRuleSchema = z.object({
-  field: z.enum(['name', 'email', 'phone', 'totalSpendings', 'tags']),
-  operator: z.enum([
-    'equals',
-    'contains',
-    'startsWith',
-    'endsWith',
-    'greaterThan',
-    'lessThan',
-  ]),
-  value: z.union([
-    z.string(),
-    z.number()
-  ]),
+  field: z.enum(['name', 'email', 'phone', 'location', 'totalSpendings', 'tags']),
+  operator: z.enum(['equals', 'contains', 'startsWith', 'endsWith', 'greaterThan', 'lessThan']),
+  value: z.union([z.string(), z.number()]),
   logicOperator: z.enum(['AND', 'OR']).optional(),
 });
 
@@ -26,13 +18,7 @@ const campaignSchema = z.object({
   description: z.string().optional(),
   segmentRules: z.array(segmentRuleSchema).min(1, 'At least one segment rule is required'),
   message: z.string().min(10, 'Message must be at least 10 characters'),
-  scheduledFor: z
-    .string()
-    .refine(
-      val => !val || !isNaN(Date.parse(val)),
-      { message: 'Invalid date format for scheduledFor' }
-    )
-    .optional(),
+  scheduledFor: z.string().datetime().optional(),
 });
 
 // Get all campaigns
@@ -117,15 +103,31 @@ export const createCampaign = async (req, res) => {
     // Validate data
     const validatedData = campaignSchema.parse(req.body);
     
-    // Convert scheduledFor to ISO string if it exists
-    if (validatedData.scheduledFor) {
-      validatedData.scheduledFor = new Date(validatedData.scheduledFor).toISOString();
+    // Extract subject from message
+    const messageContent = validatedData.message;
+    let subject = 'Default Subject'; // Fallback subject
+    let body = messageContent;
+
+    const subjectMatch = messageContent.match(/^Subject:\s*(.+)\n\n([\s\S]*)$/);
+    if (subjectMatch && subjectMatch[1] && subjectMatch[2]) {
+      subject = subjectMatch[1].trim();
+      body = subjectMatch[2].trim();
+    } else {
+      // If no subject found in message, use the first few words as subject
+      subject = messageContent.substring(0, 50).trim() + '(...)';
+      console.warn('Could not extract subject from message. Using fallback.', messageContent);
     }
 
+    
     // Create campaign
     const campaign = await Campaign.create({
-      ...validatedData,
+      name: validatedData.name,
+      description: validatedData.description,
+      subject: subject, // Save extracted subject
+      segmentRules: validatedData.segmentRules,
+      message: body, // Save extracted body
       status: validatedData.scheduledFor ? 'scheduled' : 'draft',
+      scheduledFor: validatedData.scheduledFor
     });
     
     // Calculate target audience
@@ -161,8 +163,8 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Helper function to generate a fallback message
 const generateFallbackMessage = (prompt, audience) => {
-  const subject = `Special Offer for ${audience}!`;
-  const body = `Hello,
+  const subject = `{customerFirstName} Don't Forget What's Waiting for You!`;
+  const body = `Dear {customername},
 
 ${prompt}
 
@@ -186,19 +188,35 @@ export const generateMessage = async (req, res) => {
       });
     }
 
-    const systemPrompt = `You are a marketing expert creating personalized campaign messages. 
+    const systemPrompt = `You are a marketing expert creating personalized campaign messages.
     The target audience consists of customers with the following characteristics: ${audience}.
     
     Create a concise, engaging message that would resonate with this audience.
     The message should:
-    1. Be professional yet friendly
-    2. Include a clear call to action
-    3. Create a sense of urgency
-    4. Highlight the exclusive nature of the offer
-    5. Be relevant to the customer's location and context (based on audience description)
-    6. Include specific product categories if mentioned in the prompt
+    1. Start with "Dear {customername}" for personalization
+    2. Be professional yet friendly
+    3. Include a clear call to action
+    4. Create a sense of urgency
+    5. Highlight the exclusive nature of the offer
+    6. Be relevant to the customer's location and context (based on audience description)
+    7. Include specific product categories if mentioned in the prompt
+    8. Format the email body using HTML tags (e.g., <p>, <br>, <strong>)
     
-    Format the response as a complete email with subject line and body.`;
+    Format the response as a complete email with subject line and HTML body. Make sure the body is valid HTML.
+    
+    The subject line should be attention-grabbing, concise, and specific to the campaign's topic and target audience based on the provided context.
+
+    For example:
+
+Subject: Something exciting just arrived – and it's only for you!
+
+<p>Dear {customername},</p>
+
+<p>We have a special offer just for you...</p>
+
+<p>Click here to learn more: <a href="YOUR_LINK">Shop Now</a></p>
+
+<p>Best regards,<br>The Team</p>`;
 
     try {
       const response = await fetch(
@@ -236,12 +254,11 @@ export const generateMessage = async (req, res) => {
     } catch (error) {
       console.error('Hugging Face API error:', error);
       // Use fallback message if API fails
-      console.log('Using fallback message due to API error');
       const fallbackMessage = generateFallbackMessage(prompt, audience);
       
       res.status(200).json({
         success: true,
-        data: { 
+        data: {
           message: fallbackMessage,
           note: 'Using fallback message due to API error'
         },
@@ -340,49 +357,45 @@ export const sendCampaign = async (req, res) => {
     // Get target audience
     const targetAudience = await calculateTargetAudience(campaign.segmentRules);
     
-    // Simulate message delivery (90% success rate)
-    let delivered = 0;
-    let failed = 0;
-    const communicationLog = [];
-    
-    for (const customer of targetAudience) {
-      // Simulate 90% success rate
-      const isSuccessful = Math.random() < 0.9;
-      const status = isSuccessful ? 'delivered' : 'failed';
-      const deliveredAt = isSuccessful ? new Date() : null;
-      
-      communicationLog.push({
-        customerId: customer._id,
-        status,
-        deliveredAt,
+    if (targetAudience.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No target audience found for this campaign',
       });
-      
-      if (isSuccessful) {
-        delivered++;
-      } else {
-        failed++;
-      }
     }
     
-    // Update campaign
+    // Send emails
+    const emailResults = await sendCampaignEmails(campaign, targetAudience);
+    
+    // Update campaign status
     campaign.status = 'sent';
     campaign.sentAt = new Date();
     campaign.targetAudience = targetAudience.length;
-    campaign.delivered = delivered;
-    campaign.failed = failed;
-    campaign.communicationLog = communicationLog;
+    campaign.delivered = emailResults.successCount;
+    campaign.failed = emailResults.failureCount;
+    campaign.communicationLog = targetAudience.map(customer => ({
+      customerId: customer._id,
+      status: emailResults.failedEmails.some(failed => failed.email === customer.email) ? 'failed' : 'delivered',
+      deliveredAt: emailResults.failedEmails.some(failed => failed.email === customer.email) ? null : new Date(),
+    }));
     
     await campaign.save();
     
     res.status(200).json({
       success: true,
-      data: campaign,
+      data: {
+        campaignId: campaign._id,
+        successCount: emailResults.successCount,
+        failureCount: emailResults.failureCount,
+        failedEmails: emailResults.failedEmails,
+      },
     });
   } catch (error) {
     console.error('Send campaign error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error',
+      message: 'Failed to send campaign',
+      error: error.message,
     });
   }
 };
@@ -424,17 +437,18 @@ export const deleteCampaign = async (req, res) => {
 // Preview campaign audience
 export const previewCampaignAudience = async (req, res) => {
   try {
-    console.log('Received payload for preview-audience:', JSON.stringify(req.body, null, 2));
     const { segmentRules } = req.body;
+    
     if (!segmentRules || !Array.isArray(segmentRules) || segmentRules.length === 0) {
-      console.log('Invalid or missing segmentRules:', segmentRules);
       return res.status(400).json({
         success: false,
         message: 'Segment rules are required',
       });
     }
+    
     // Calculate target audience
     const targetAudience = await calculateTargetAudience(segmentRules);
+    
     res.status(200).json({
       success: true,
       data: {
@@ -470,6 +484,7 @@ async function calculateTargetAudience(segmentRules) {
       case 'name':
       case 'email':
       case 'phone':
+      case 'location':
         condition = buildStringCondition(rule.field, rule.operator, rule.value);
         break;
         
@@ -587,3 +602,57 @@ function buildNumberCondition(field, operator, value) {
       return {}; // Return an empty condition
   }
 }
+
+// Test email endpoint
+export const testEmail = async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email address is required',
+      });
+    }
+
+    const testMessage = `
+      <h1>Test Email</h1>
+      <p>This is a test email to verify the email service configuration.</p>
+      <p>If you're receiving this email, your email service is working correctly!</p>
+      <hr>
+      <p><strong>Test Details:</strong></p>
+      <ul>
+        <li>Sent at: ${new Date().toLocaleString()}</li>
+        <li>From: ${process.env.EMAIL_FROM_NAME} (${process.env.EMAIL_FROM_ADDRESS})</li>
+      </ul>
+    `;
+
+    const result = await sendEmail({
+      to: email,
+      subject: 'Test Email from Campaign System',
+      text: 'This is a test email to verify the email service configuration.',
+      html: testMessage,
+    });
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send test email',
+        error: result.error,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Test email sent successfully',
+      messageId: result.messageId,
+    });
+  } catch (error) {
+    console.error('Test email error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send test email',
+      error: error.message,
+    });
+  }
+};
